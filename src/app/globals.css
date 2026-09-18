@@ -35,6 +35,49 @@ body {
   font-family: var(--font-sans), "Noto Sans", "Segoe UI", sans-serif;
 }
 
+a,
+button,
+[role="button"],
+.btn,
+.chip,
+select,
+summary,
+label,
+input[type="submit"],
+input[type="button"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"],
+input[type="reset"] {
+  cursor: pointer;
+}
+
+button:disabled,
+.btn:disabled,
+input:disabled,
+select:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+input:not([type]),
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="datetime-local"],
+textarea {
+  cursor: text;
+}
+
+html[lang="hi"] body,
+html[lang="hi"] .font-display {
+  font-family: var(--font-deva), var(--font-sans), "Noto Sans Devanagari", sans-serif;
+}
+
 .font-display {
   font-family: var(--font-sans), "Noto Sans", sans-serif;
   font-weight: 700;
@@ -217,3 +260,59 @@ label.lbl {
   font-size: 0.78rem;
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* GOI top green banner — like mygov.in */
+.goi-top-banner {
+  background: #006400;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* Marquee ticker */
+.marquee-bar {
+  display: flex;
+  align-items: center;
+  background: #f0f4ff;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+  font-size: 0.72rem;
+  color: var(--navy);
+}
+
+.marquee-label {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  background: var(--navy);
+  color: white;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.marquee-track {
+  flex: 1;
+  overflow: hidden;
+}
+
+.marquee-content {
+  display: inline-flex;
+  animation: marquee-scroll 40s linear infinite;
+  white-space: nowrap;
+}
+
+.marquee-item {
+  padding: 0.35rem 2.5rem;
+  border-right: 1px solid var(--line);
+}
+
+@keyframes marquee-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.marquee-bar:hover .marquee-content {
+  animation-play-state: paused;
+}
+

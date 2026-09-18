@@ -8,15 +8,17 @@ export default async function QueuePage() {
   const session = await getSession();
   if (!session || session.role !== "ADMIN") redirect("/app");
 
-  const pending = await prisma.application.findMany({
-    where: { status: "SUBMITTED" },
-    include: { instrument: { include: { owner: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-  const officers = await prisma.user.findMany({
-    where: { role: { in: ["LMO", "GATC"] } },
-    select: { id: true, name: true, role: true },
-  });
+  const [pending, officers] = await Promise.all([
+    prisma.application.findMany({
+      where: { status: "SUBMITTED" },
+      include: { instrument: { include: { owner: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { role: { in: ["LMO", "GATC"] } },
+      select: { id: true, name: true, role: true },
+    }),
+  ]);
 
   return (
     <div>

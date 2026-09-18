@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { StatusBadge } from "@/components/public";
 import { AssignForm, InspectForm } from "@/components/forms";
 import { formatDateTime, rupees } from "@/lib/utils";
+import { certificatePath } from "@/lib/public-url";
 
 export default async function ApplicationDetailPage({
   params,
@@ -17,11 +18,63 @@ export default async function ApplicationDetailPage({
 
   const application = await prisma.application.findUnique({
     where: { id },
-    include: {
-      instrument: { include: { owner: true } },
-      assignedTo: true,
-      inspection: { include: { officer: true } },
-      certificate: true,
+    select: {
+      id: true,
+      applicationNo: true,
+      type: true,
+      status: true,
+      feeAmount: true,
+      assignedToId: true,
+      scheduledAt: true,
+      remarks: true,
+      instrument: {
+        select: {
+          make: true,
+          model: true,
+          serialNumber: true,
+          category: true,
+          accuracyClass: true,
+          premisesName: true,
+          address: true,
+          lat: true,
+          lng: true,
+          owner: {
+            select: {
+              name: true,
+              phone: true,
+            },
+          },
+        },
+      },
+      assignedTo: {
+        select: {
+          name: true,
+          role: true,
+        },
+      },
+      inspection: {
+        select: {
+          result: true,
+          standardUsed: true,
+          maxPermissibleError: true,
+          observedError: true,
+          notes: true,
+          photoPath: true,
+          lat: true,
+          lng: true,
+          inspectedAt: true,
+          officer: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      certificate: {
+        select: {
+          certificateNo: true,
+        },
+      },
     },
   });
   if (!application) notFound();
@@ -29,6 +82,7 @@ export default async function ApplicationDetailPage({
   const officers = await prisma.user.findMany({
     where: { role: { in: ["LMO", "GATC"] } },
     select: { id: true, name: true, role: true },
+    take: 50,
   });
 
   const canInspect =
@@ -104,7 +158,7 @@ export default async function ApplicationDetailPage({
           <h2 className="font-display text-xl">Certificate issued</h2>
           <Link
             className="btn btn-primary mt-3"
-            href={`/verify/${encodeURIComponent(application.certificate.certificateNo)}`}
+            href={certificatePath(application.certificate.certificateNo)}
           >
             Open {application.certificate.certificateNo}
           </Link>

@@ -23,6 +23,10 @@ model User {
   assignments      Application[] @relation("AssignedOfficer")
   inspections      Inspection[]
   auditLogs        AuditLog[]
+
+  @@index([email])
+  @@index([role])
+  @@index([district])
 }
 
 model Instrument {
@@ -47,6 +51,11 @@ model Instrument {
 
   applications Application[]
   certificates Certificate[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([validUntil])
+  @@index([serialNumber])
 }
 
 model Application {
@@ -66,7 +75,13 @@ model Application {
   updatedAt    DateTime  @updatedAt
 
   inspection Inspection?
-  certificate Certificate?
+  certificate Certificate[]
+
+  @@index([instrumentId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([applicationNo])
 }
 
 model Inspection {
@@ -89,7 +104,7 @@ model Inspection {
 model Certificate {
   id            String   @id @default(cuid())
   certificateNo String   @unique
-  applicationId String   @unique
+  applicationId String
   application   Application @relation(fields: [applicationId], references: [id])
   instrumentId  String
   instrument    Instrument @relation(fields: [instrumentId], references: [id])
@@ -97,6 +112,10 @@ model Certificate {
   validUntil    DateTime
   integrityHash String
   qrPayload     String
+
+  @@index([certificateNo])
+  @@index([instrumentId])
+  @@index([applicationId])
 }
 
 model AuditLog {

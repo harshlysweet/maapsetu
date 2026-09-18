@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import QRCode from "qrcode";
+import { certificateVerifyUrl } from "../src/lib/public-url";
 
 const prisma = new PrismaClient();
 
@@ -13,7 +14,7 @@ async function main() {
   await prisma.instrument.deleteMany();
   await prisma.user.deleteMany();
 
-  const password = async (plain: string) => bcrypt.hash(plain, 10);
+  const password = async (plain: string) => bcrypt.hash(plain, 8);
 
   const [admin, lmo, gatc, trader] = await Promise.all([
     prisma.user.create({
@@ -316,8 +317,10 @@ async function issueSeedCertificate(opts: {
     )
     .digest("hex");
 
-  const verifyUrl = `http://localhost:3000/verify/${encodeURIComponent(opts.certificateNo)}`;
-  const qrPayload = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 240 });
+  const qrPayload = await QRCode.toDataURL(certificateVerifyUrl(opts.certificateNo), {
+    margin: 1,
+    width: 240,
+  });
 
   await prisma.certificate.create({
     data: {

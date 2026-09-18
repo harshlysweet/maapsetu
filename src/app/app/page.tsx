@@ -1,25 +1,46 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { StatusBadge } from "@/components/public";
 import { AutoAssignButton } from "@/components/forms";
 import { daysUntil, formatDate, formatDateTime, rupees } from "@/lib/utils";
 import { redirect } from "next/navigation";
+import { parseLang, translate, type Lang } from "@/lib/i18n";
+import { cached } from "@/lib/cache";
 
 export default async function AppHome() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  if (session.role === "TRADER") return <TraderHome userId={session.id} name={session.name} />;
-  if (session.role === "ADMIN") return <AdminHome />;
-  return <OfficerHome userId={session.id} role={session.role} name={session.name} />;
+  const jar = await cookies();
+  const lang = parseLang(jar.get("maapsetu_lang")?.value);
+
+  if (session.role === "TRADER") return <TraderHome userId={session.id} name={session.name} lang={lang} />;
+  if (session.role === "ADMIN") return <AdminHome lang={lang} />;
+  return <OfficerHome userId={session.id} role={session.role} name={session.name} lang={lang} />;
 }
 
-async function TraderHome({ userId, name }: { userId: string; name: string }) {
-  const instruments = await prisma.instrument.findMany({
-    where: { ownerId: userId },
-    include: { applications: { orderBy: { createdAt: "desc" }, take: 1 } },
-  });
+async function TraderHome({ userId, name, lang }: { userId: string; name: string; lang: Lang }) {
+  const t = (k: string) => translate(lang, k);
+  const instruments = await cached(`trader:${userId}`, 15_000, () =>
+    prisma.instrument.findMany({
+      where: { ownerId: userId },
+      select: {
+        id: true,
+        serialNumber: true,
+        category: true,
+        validUntil: true,
+        status: true,
+        applications: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+      take: 20,
+    })
+  );
   const expiring = instruments.filter((i) => {
     const d = daysUntil(i.validUntil);
     return d !== null && d <= 30;
@@ -27,22 +48,24 @@ async function TraderHome({ userId, name }: { userId: string; name: string }) {
 
   return (
     <div>
-      <h1 className="font-display text-3xl">Namaste, {name}</h1>
-      <p className="text-[var(--muted)] mt-1">Your weighing and measuring instruments.</p>
+      <h1 className="font-display text-3xl">
+        {lang === "hi" ? `नमस्ते, ${name}` : `Namaste, ${name}`}
+      </h1>
+      <p className="text-[var(--muted)] mt-1">{t("dash.traderSubtitle")}</p>
       <div className="grid sm:grid-cols-3 gap-3 mt-6">
-        <Stat label="Instruments" value={instruments.length} />
-        <Stat label="Due in 30 days" value={expiring.length} warn />
-        <Stat label="Failed / unverified" value={instruments.filter((i) => i.status !== "VERIFIED").length} />
+        <Stat label={t("dash.statInstruments")} value={instruments.length} />
+        <Stat label={t("dash.statDue")} value={expiring.length} warn />
+        <Stat label={t("dash.statFailed")} value={instruments.filter((i) => i.status !== "VERIFIED").length} />
       </div>
       <div className="flex justify-between items-center mt-8 mb-3">
-        <h2 className="font-display text-2xl">Alerts</h2>
+        <h2 className="font-display text-2xl">{t("dash.alerts")}</h2>
         <Link href="/app/instruments/new" className="btn btn-primary">
-          Add instrument
+          {t("dash.addInstrument")}
         </Link>
       </div>
       <div className="space-y-2">
         {expiring.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">No expiry alerts right now.</p>
+          <p className="text-sm text-[var(--muted)]">{t("dash.noAlerts")}</p>
         ) : (
           expiring.map((i) => (
             <div key={i.id} className="card p-4 flex justify-between gap-3">
@@ -51,7 +74,7 @@ async function TraderHome({ userId, name }: { userId: string; name: string }) {
                   {i.serialNumber} · {i.category}
                 </p>
                 <p className="text-sm text-[var(--muted)]">
-                  Valid until {formatDate(i.validUntil)} ({daysUntil(i.validUntil)} days)
+                  {t("dash.validUntil")} {formatDate(i.validUntil)} ({daysUntil(i.validUntil)} {t("dash.days")})
                 </p>
               </div>
               <StatusBadge status="EXPIRING" />
@@ -63,52 +86,82 @@ async function TraderHome({ userId, name }: { userId: string; name: string }) {
   );
 }
 
-async function AdminHome() {
-  const [submitted, assigned, certified, failed, expiring] = await Promise.all([
-    prisma.application.count({ where: { status: "SUBMITTED" } }),
-    prisma.application.count({ where: { status: "ASSIGNED" } }),
-    prisma.application.count({ where: { status: "CERTIFIED" } }),
-    prisma.application.count({ where: { status: "FAILED" } }),
-    prisma.instrument.count({
-      where: { validUntil: { lte: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30) } },
-    }),
-  ]);
-
-  const recent = await prisma.application.findMany({
-    take: 8,
-    orderBy: { createdAt: "desc" },
-    include: { instrument: { include: { owner: true } }, assignedTo: true },
+async function AdminHome({ lang }: { lang: Lang }) {
+  const t = (k: string) => translate(lang, k);
+  const { submitted, assigned, certified, failed, expiring, recent } = await cached("admin-dash", 15_000, async () => {
+    const [countsRaw, recent] = await Promise.all([
+      prisma.$queryRaw<[{ submitted: bigint; assigned: bigint; certified: bigint; failed: bigint; expiring: bigint }]>`
+        SELECT
+          COUNT(*) FILTER (WHERE "Application"."status" = 'SUBMITTED') AS submitted,
+          COUNT(*) FILTER (WHERE "Application"."status" IN ('ASSIGNED','SCHEDULED','IN_PROGRESS')) AS assigned,
+          COUNT(*) FILTER (WHERE "Application"."status" = 'CERTIFIED') AS certified,
+          COUNT(*) FILTER (WHERE "Application"."status" = 'FAILED') AS failed,
+          (SELECT COUNT(*) FROM "Instrument" WHERE "validUntil" <= NOW() + INTERVAL '30 days') AS expiring
+        FROM "Application"
+      `,
+      prisma.application.findMany({
+        take: 5,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          applicationNo: true,
+          status: true,
+          scheduledAt: true,
+          instrument: {
+            select: {
+              serialNumber: true,
+              owner: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          assignedTo: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      }),
+    ]);
+    const c = countsRaw[0];
+    return {
+      submitted: Number(c.submitted),
+      assigned: Number(c.assigned),
+      certified: Number(c.certified),
+      failed: Number(c.failed),
+      expiring: Number(c.expiring),
+      recent,
+    };
   });
 
   return (
     <div>
-      <h1 className="font-display text-3xl">Hyderabad control room</h1>
-      <p className="text-[var(--muted)] mt-1">Pendency, enforcement and officer load.</p>
+      <h1 className="font-display text-3xl">{lang === "hi" ? "नियंत्रण कक्ष" : "Control Room"}</h1>
+      <p className="text-[var(--muted)] mt-1">{t("dash.adminSubtitle")}</p>
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-6">
-        <Stat label="Unassigned" value={submitted} warn />
-        <Stat label="In field" value={assigned} />
-        <Stat label="Certified" value={certified} />
-        <Stat label="Failed" value={failed} />
-        <Stat label="Expiring instruments" value={expiring} warn />
+        <Stat label={t("dash.statUnassigned")} value={submitted} warn />
+        <Stat label={t("dash.statInField")} value={assigned} />
+        <Stat label={t("dash.statCertified")} value={certified} />
+        <Stat label={t("dash.statFailedApp")} value={failed} />
+        <Stat label={t("dash.statExpiring")} value={expiring} warn />
       </div>
       <div className="mt-8 card p-5">
-        <h2 className="font-display text-xl mb-3">Dispatch</h2>
+        <h2 className="font-display text-xl mb-3">{t("dash.dispatch")}</h2>
         <AutoAssignButton />
-        <p className="text-sm text-[var(--muted)] mt-2">
-          Weighbridges are routed to GATCs; NAWI and dispensers to LMOs. Production would add live
-          route distance.
-        </p>
+        <p className="text-sm text-[var(--muted)] mt-2">{t("dash.dispatchNote")}</p>
       </div>
-      <h2 className="font-display text-2xl mt-8 mb-3">Recent applications</h2>
+      <h2 className="font-display text-2xl mt-8 mb-3">{t("dash.recentApps")}</h2>
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-[var(--muted)]">
             <tr>
-              <th className="p-3">Application</th>
-              <th>User</th>
-              <th>Instrument</th>
-              <th>Status</th>
-              <th>Officer</th>
+              <th className="p-3">{t("dash.colApp")}</th>
+              <th>{t("dash.colUser")}</th>
+              <th>{t("dash.colInstrument")}</th>
+              <th>{t("dash.colStatus")}</th>
+              <th>{t("dash.colOfficer")}</th>
             </tr>
           </thead>
           <tbody>
@@ -138,24 +191,42 @@ async function OfficerHome({
   userId,
   role,
   name,
+  lang,
 }: {
   userId: string;
   role: string;
   name: string;
+  lang: Lang;
 }) {
-  const jobs = await prisma.application.findMany({
-    where: { assignedToId: userId },
-    include: { instrument: true },
-    orderBy: { scheduledAt: "asc" },
-  });
+  const t = (k: string) => translate(lang, k);
+  const jobs = await cached(`officer:${userId}`, 15_000, () =>
+    prisma.application.findMany({
+      where: { assignedToId: userId },
+      select: {
+        id: true,
+        status: true,
+        feeAmount: true,
+        scheduledAt: true,
+        instrument: {
+          select: {
+            premisesName: true,
+            category: true,
+            serialNumber: true,
+          },
+        },
+      },
+      orderBy: { scheduledAt: "asc" },
+      take: 20,
+    })
+  );
   const open = jobs.filter((j) => ["ASSIGNED", "SCHEDULED", "IN_PROGRESS"].includes(j.status));
 
   return (
     <div>
       <h1 className="font-display text-3xl">
-        {role === "GATC" ? "Test centre roster" : "Field roster"} — {name}
+        {role === "GATC" ? t("dash.testCentreRoster") : t("dash.fieldRosterOf")} — {name}
       </h1>
-      <p className="text-[var(--muted)] mt-1">{open.length} open jobs.</p>
+      <p className="text-[var(--muted)] mt-1">{open.length} {t("dash.openJobs")}.</p>
       <div className="space-y-3 mt-6">
         {jobs.map((job) => (
           <Link key={job.id} href={`/app/applications/${job.id}`} className="card p-4 block hover:border-[var(--navy)]">
@@ -165,7 +236,7 @@ async function OfficerHome({
                 <p className="text-sm text-[var(--muted)]">
                   {job.instrument.category} · {job.instrument.serialNumber} · {rupees(job.feeAmount)}
                 </p>
-                <p className="text-xs mt-1">Scheduled {formatDateTime(job.scheduledAt)}</p>
+                <p className="text-xs mt-1">{t("dash.scheduled")} {formatDateTime(job.scheduledAt)}</p>
               </div>
               <StatusBadge status={job.status} />
             </div>

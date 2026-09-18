@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { invalidateCache } from "@/lib/cache";
 
 const schema = z.object({
   officerId: z.string(),
@@ -47,6 +48,11 @@ export async function POST(
       detail: `Assigned to ${officer.name} (${officer.role})`,
     },
   });
+
+  invalidateCache("apps:");
+  invalidateCache("admin-dash");
+  invalidateCache("officer:");
+  invalidateCache("home-stats");
 
   return NextResponse.json({ application });
 }

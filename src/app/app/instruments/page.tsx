@@ -3,22 +3,45 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { StatusBadge } from "@/components/public";
-import { ApplyButton } from "@/components/forms";
+import { ApplyButton, DeleteCertificateButton } from "@/components/forms";
 import { daysUntil, formatDate } from "@/lib/utils";
+import { certificatePath } from "@/lib/public-url";
+import { cached } from "@/lib/cache";
 
+export const revalidate = 15;
 export default async function InstrumentsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "TRADER") redirect("/app");
 
-  const instruments = await prisma.instrument.findMany({
-    where: { ownerId: session.id },
-    include: {
-      applications: { where: { status: { in: ["SUBMITTED", "ASSIGNED", "SCHEDULED"] } } },
-      certificates: { orderBy: { issuedAt: "desc" }, take: 1 },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const instruments = await cached(`instr:${session.id}`, 15_000, () =>
+    prisma.instrument.findMany({
+      where: { ownerId: session.id },
+      select: {
+        id: true,
+        make: true,
+        model: true,
+        serialNumber: true,
+        category: true,
+        accuracyClass: true,
+        capacity: true,
+        premisesName: true,
+        validUntil: true,
+        status: true,
+        applications: {
+          where: { status: { in: ["SUBMITTED", "ASSIGNED", "SCHEDULED"] } },
+          select: { id: true },
+        },
+        certificates: {
+          orderBy: { issuedAt: "desc" },
+          take: 1,
+          select: { certificateNo: true, id: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    })
+  );
 
   return (
     <div>
@@ -53,12 +76,15 @@ export default async function InstrumentsPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {!open ? <ApplyButton instrumentId={i.id} type={type} /> : <StatusBadge status="SUBMITTED" />}
                 {i.certificates[0] ? (
-                  <Link
-                    href={`/verify/${encodeURIComponent(i.certificates[0].certificateNo)}`}
-                    className="btn btn-ghost py-2 text-sm"
-                  >
-                    View certificate
-                  </Link>
+                  <>
+                    <Link
+                      href={certificatePath(i.certificates[0].certificateNo)}
+                      className="btn btn-ghost py-2 text-sm"
+                    >
+                      View certificate
+                    </Link>
+                    <DeleteCertificateButton certificateId={i.certificates[0].id} />
+                  </>
                 ) : null}
               </div>
             </article>

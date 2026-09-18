@@ -19,7 +19,8 @@ function secret() {
 }
 
 export async function hashPassword(password: string) {
-  return bcrypt.hash(password, 10);
+  const rounds = process.env.NODE_ENV === "development" ? 4 : 8;
+  return bcrypt.hash(password, rounds);
 }
 
 export async function verifyPassword(password: string, hash: string) {

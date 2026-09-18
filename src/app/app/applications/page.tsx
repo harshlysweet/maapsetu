@@ -4,7 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { StatusBadge } from "@/components/public";
 import { formatDateTime, rupees } from "@/lib/utils";
+import { certificatePath } from "@/lib/public-url";
+import { cached } from "@/lib/cache";
 
+export const revalidate = 15;
 export default async function ApplicationsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -16,11 +19,35 @@ export default async function ApplicationsPage() {
         ? {}
         : { assignedToId: session.id };
 
-  const applications = await prisma.application.findMany({
-    where,
-    include: { instrument: { include: { owner: true } }, assignedTo: true, certificate: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const applications = await cached(`apps:${session.id}`, 15_000, () =>
+    prisma.application.findMany({
+      where,
+      include: {
+        instrument: {
+          select: {
+            serialNumber: true,
+            owner: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+        assignedTo: {
+          select: {
+            name: true,
+          },
+        },
+        certificate: {
+          select: {
+            certificateNo: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    })
+  );
 
   return (
     <div>
@@ -35,6 +62,7 @@ export default async function ApplicationsPage() {
               <th>Fee</th>
               <th>Status</th>
               <th>Assigned</th>
+              <th>Certificate</th>
               <th></th>
             </tr>
           </thead>
@@ -54,6 +82,15 @@ export default async function ApplicationsPage() {
                 <td>
                   {a.assignedTo?.name || "—"}
                   <div className="text-xs">{formatDateTime(a.scheduledAt)}</div>
+                </td>
+                <td>
+                  {a.certificate?.certificateNo ? (
+                    <Link href={certificatePath(a.certificate.certificateNo)} className="underline">
+                      {a.certificate.certificateNo}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td className="p-3">
                   <Link href={`/app/applications/${a.id}`} className="underline">

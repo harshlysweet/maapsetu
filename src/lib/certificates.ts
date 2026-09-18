@@ -2,6 +2,14 @@ import { createHash } from "crypto";
 import QRCode from "qrcode";
 import { prisma } from "./prisma";
 import { catalogueFor } from "./constants";
+import { certificateVerifyUrl } from "./public-url";
+
+export async function makeCertificateQr(certificateNo: string) {
+  return QRCode.toDataURL(certificateVerifyUrl(certificateNo), {
+    margin: 1,
+    width: 240,
+  });
+}
 
 export function addMonths(date: Date, months: number) {
   const next = new Date(date);
@@ -16,13 +24,25 @@ export function daysFromNow(days: number) {
 }
 
 export async function nextApplicationNo() {
-  const count = await prisma.application.count();
-  return `APP/TS/HYD/${new Date().getFullYear()}/${String(count + 1).padStart(5, "0")}`;
+  const year = new Date().getFullYear();
+  const last = await prisma.application.findFirst({
+    where: { applicationNo: { startsWith: `APP/TS/HYD/${year}/` } },
+    orderBy: { applicationNo: "desc" },
+    select: { applicationNo: true },
+  });
+  const seq = last ? parseInt(last.applicationNo.split("/").pop() ?? "0", 10) : 0;
+  return `APP/TS/HYD/${year}/${String(seq + 1).padStart(5, "0")}`;
 }
 
 export async function nextCertificateNo() {
-  const count = await prisma.certificate.count();
-  return `VC/TS/HYD/${new Date().getFullYear()}/${String(count + 1).padStart(5, "0")}`;
+  const year = new Date().getFullYear();
+  const last = await prisma.certificate.findFirst({
+    where: { certificateNo: { startsWith: `VC/TS/HYD/${year}/` } },
+    orderBy: { certificateNo: "desc" },
+    select: { certificateNo: true },
+  });
+  const seq = last ? parseInt(last.certificateNo.split("/").pop() ?? "0", 10) : 0;
+  return `VC/TS/HYD/${year}/${String(seq + 1).padStart(5, "0")}`;
 }
 
 export async function issueCertificate(applicationId: string) {
@@ -43,8 +63,6 @@ export async function issueCertificate(applicationId: string) {
   const issuedAt = new Date();
   const validUntil = addMonths(issuedAt, catalogue?.validityMonths ?? 12);
   const certificateNo = await nextCertificateNo();
-  const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const verifyUrl = `${base}/verify/${encodeURIComponent(certificateNo)}`;
 
   const integrityHash = createHash("sha256")
     .update(
@@ -58,10 +76,7 @@ export async function issueCertificate(applicationId: string) {
     )
     .digest("hex");
 
-  const qrPayload = await QRCode.toDataURL(verifyUrl, {
-    margin: 1,
-    width: 240,
-  });
+  const qrPayload = await makeCertificateQr(certificateNo);
 
   const certificate = await prisma.certificate.create({
     data: {

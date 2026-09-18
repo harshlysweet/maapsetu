@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { catalogueFor } from "@/lib/constants";
 import { issueCertificate } from "@/lib/certificates";
+import { invalidateCache } from "@/lib/cache";
 
 export async function POST(
   request: Request,
@@ -97,6 +98,8 @@ export async function POST(
       detail: `${result} at ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
     },
   });
+
+  invalidateCache(); // bust everything — status, certificates, stats all changed
 
   return NextResponse.json({ ok: true, result });
 }

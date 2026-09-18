@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { catalogueFor } from "@/lib/constants";
 import { nextApplicationNo } from "@/lib/certificates";
+import { invalidateCache } from "@/lib/cache";
 
 const schema = z.object({
   instrumentId: z.string(),
@@ -83,6 +84,10 @@ export async function POST(request: Request) {
       detail: `${application.applicationNo} fee ₹${application.feeAmount} (demo payment captured)`,
     },
   });
+
+  invalidateCache("apps:");
+  invalidateCache("instr:");
+  invalidateCache("home-stats");
 
   return NextResponse.json({ application });
 }
