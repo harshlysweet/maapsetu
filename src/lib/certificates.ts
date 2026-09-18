@@ -34,7 +34,7 @@ export async function issueCertificate(applicationId: string) {
     throw new Error("Certificate can only be issued after a passing inspection");
   }
 
-  const existing = await prisma.certificate.findUnique({
+  const existing = await prisma.certificate.findFirst({
     where: { applicationId },
   });
   if (existing) return existing;
